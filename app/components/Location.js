@@ -2,8 +2,9 @@ import React, { Component, useEffect, useState, useRef } from "react"
 import { StyleSheet, Text, View, Button, AppState } from "react-native"
 import * as TaskManager from "expo-task-manager"
 import * as Location from "expo-location"
-
+import firestore from '@react-native-firebase/firestore';
 const LOCATION_TASK_NAME = "LOCATION_TASK_NAME";
+const COLLECTION_LOCATION = "tracklocation-react";
 let foregroundSubscription = null;
 export default function TrackLocation() {
   const appState = useRef(AppState.currentState);
@@ -31,6 +32,7 @@ export default function TrackLocation() {
       subscription.remove();
     };
   }, []);
+  // background-task
   useEffect(() => {
     // Define the background task for location tracking
     TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
@@ -45,10 +47,43 @@ export default function TrackLocation() {
         if (location) {
           console.log("Location in background", location.coords)
           setPosition(location.coords);
+          saveFirestoreData(location.coords);
         }
       }
     });
   }, []);
+  // fetch data
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const locations = await firestore()
+          .collection(COLLECTION_LOCATION)
+          .get()
+          .then(querySnapshot => {
+            console.log('location data:', querySnapshot.size);
+            querySnapshot.forEach(documentSnapshot => {
+              console.log('location ID: ', documentSnapshot.id, documentSnapshot.data());
+            });
+          });
+      } catch(err) {
+        console.error(err);
+      }
+    };
+    // open comment if you want to show query when mount!
+    // fetchData();
+  }, []);
+  const saveFirestoreData = (data) => {
+    let doc = {
+      'location': new firestore.GeoPoint(data.latitude, data.longitude),
+      'createdAt': firestore.FieldValue.serverTimestamp(),
+    }
+    firestore()
+      .collection(COLLECTION_LOCATION)
+      .add(doc)
+      .then((docRef) => {
+        console.log('Location Added!', docRef.id);
+      });
+  }
   // Start location tracking in foreground
   const startForegroundUpdate = async () => {
     // Check if foreground permission is granted
@@ -68,7 +103,9 @@ export default function TrackLocation() {
         accuracy: Location.Accuracy.High,
       },
       location => {
-        setPosition(location.coords)
+        setPosition(location.coords);
+        // save fire-store
+        saveFirestoreData(location.coords);
       }
     )
   }
@@ -106,7 +143,7 @@ export default function TrackLocation() {
 
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
       // For better logs, we set the accuracy to the most sensitive option
-      accuracy: Location.Accuracy.BestForNavigation,
+      accuracy: Location.Accuracy.High,
       // Make sure to enable this notification if you want to consistently track in the background
       showsBackgroundLocationIndicator: true,
       foregroundService: {
